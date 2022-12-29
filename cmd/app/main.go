@@ -5,6 +5,7 @@ import (
 	"github.com/aspin/solana-trader-tui/flags"
 	applog "github.com/aspin/solana-trader-tui/log"
 	"github.com/aspin/solana-trader-tui/program"
+	"github.com/aspin/solana-trader-tui/store"
 	"github.com/urfave/cli/v2"
 	"log"
 	"os"
@@ -37,7 +38,8 @@ func run(c *cli.Context) error {
 		_ = logFile.Close()
 	}(logFile)
 
-	p := program.New()
+	appStore := store.NewFromFile(c.String(flags.ConfigFile.Name))
+	p := program.New(&appStore)
 	_, err = p.Run()
 	return err
 }

@@ -14,11 +14,10 @@ type appModel struct {
 	dispatch StageDispatcher
 }
 
-func New() *tea.Program {
-	s := &store.App{}
+func New(s *store.App) *tea.Program {
+	//initialStage := StageMenu
+	initialStage := StageSettings
 
-	// TODO: add loading from config file
-	initialStage := StageMenu
 	if s.NeedsInit() {
 		initialStage = StageSettings
 	}
