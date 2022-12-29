@@ -39,7 +39,7 @@ func run(c *cli.Context) error {
 	}(logFile)
 
 	appStore := store.NewFromFile(c.String(flags.ConfigFile.Name))
-	p := program.New(&appStore)
+	p := program.New(appStore)
 	_, err = p.Run()
 	return err
 }

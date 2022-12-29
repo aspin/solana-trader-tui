@@ -16,10 +16,10 @@ type StageModel interface {
 }
 
 var (
-	StageExit     Stage = 0
-	StageMenu     Stage = 1
-	StageSettings Stage = 2
-	StageCall     Stage = 3
-	StageView     Stage = 4
-	StageError    Stage = 5
+	StageExit       Stage = 0
+	StageMenu       Stage = 1
+	StageSettings   Stage = 2
+	StageOpenOrders Stage = 3
+	StageView       Stage = 4
+	StageError      Stage = 5
 )

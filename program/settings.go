@@ -10,20 +10,35 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/gagliardetto/solana-go"
 	"strings"
+	"time"
 )
 
 var (
 	focusedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("86"))
 	noStyle      = lipgloss.NewStyle()
+	statusStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#04B575"))
 )
 
 type settingsModel struct {
-	err        error
+	err    error
+	status string
+
 	inputs     []textinput.Model
 	focusIndex int
 
 	appStore *store.App
+	dispatch StageDispatcher
 }
+
+type statusMsg struct {
+	status string
+}
+
+type statusErrMsg struct {
+	err error
+}
+
+type statusDoneMsg struct{}
 
 func newSettingsModel(appStore *store.App) StageModel {
 	m := settingsModel{
@@ -37,8 +52,6 @@ func newSettingsModel(appStore *store.App) StageModel {
 		case 0:
 			t.Placeholder = "bloXroute Auth Header"
 			t.SetValue(appStore.Settings.AuthHeader)
-			t.Focus()
-			t.PromptStyle = focusedStyle
 		case 1:
 			t.Placeholder = "Private Key"
 			t.SetValue(appStore.Settings.PrivateKey.String())
@@ -69,6 +82,8 @@ func newSettingsModel(appStore *store.App) StageModel {
 
 		m.inputs[i] = t
 	}
+
+	m.Init(nil)
 	return &m
 }
 
@@ -76,6 +91,7 @@ func (m *settingsModel) Init(dispatch StageDispatcher) tea.Cmd {
 	m.focusIndex = 0
 	m.inputs[0].Focus()
 	m.inputs[0].PromptStyle = focusedStyle
+	m.dispatch = dispatch
 	return textinput.Blink
 }
 
@@ -92,7 +108,6 @@ func (m *settingsModel) Update(msg tea.Msg) (Stage, StageModel, tea.Cmd) {
 					m.err = err
 					break
 				}
-				return StageMenu, m, nil
 			}
 
 			if k == tea.KeyUp || k == tea.KeyShiftTab {
@@ -120,6 +135,12 @@ func (m *settingsModel) Update(msg tea.Msg) (Stage, StageModel, tea.Cmd) {
 			}
 			return StageSettings, m, tea.Batch(cmds...)
 		}
+	case statusMsg:
+		m.status = msg.status
+	case statusErrMsg:
+		m.err = msg.err
+	case statusDoneMsg:
+		return StageMenu, m, nil
 	}
 
 	cmd = m.updateInputs(msg)
@@ -176,6 +197,17 @@ func (m settingsModel) submit() error {
 	}
 	m.appStore.Settings.Project = project
 
+	go func() {
+		m.dispatch(statusMsg{status: "connecting..."})
+		err = m.appStore.Connect()
+		if err != nil {
+			m.dispatch(statusErrMsg{err: err})
+			return
+		}
+		m.dispatch(statusMsg{status: "connected!"})
+		time.Sleep(500 * time.Millisecond)
+		m.dispatch(statusDoneMsg{})
+	}()
 	return nil
 }
 
@@ -192,10 +224,16 @@ func (m settingsModel) View() string {
 		button = focusedStyle.Render(button)
 	}
 	b.WriteString(button)
-
 	b.WriteRune('\n')
+
+	if m.status != "" {
+		b.WriteString(statusStyle.Render(m.status))
+		b.WriteRune('\n')
+	}
+
 	if m.err != nil {
 		b.WriteString(errorStyle.Render(m.err.Error()))
+		b.WriteRune('\n')
 	}
 	return b.String()
 }

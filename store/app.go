@@ -7,9 +7,11 @@ import (
 	"github.com/gagliardetto/solana-go"
 	"log"
 	"os"
+	"sync"
 )
 
 type App struct {
+	m        sync.Mutex
 	Err      error
 	UI       UI
 	Settings Settings
@@ -29,11 +31,11 @@ type Settings struct {
 	Project           pb.Project
 }
 
-func NewFromFile(filename string) App {
+func NewFromFile(filename string) *App {
 	b, err := os.ReadFile(filename)
 	if err != nil {
 		log.Printf("could not read file (%v): %v", filename, err)
-		return App{}
+		return &App{}
 	}
 
 	m := struct {
@@ -46,7 +48,7 @@ func NewFromFile(filename string) App {
 	err = json.Unmarshal(b, &m)
 	if err != nil {
 		log.Printf("could not unmarshal json: %v, bytes: %v", err, string(b))
-		return App{}
+		return &App{}
 	}
 
 	s := Settings{
@@ -57,21 +59,38 @@ func NewFromFile(filename string) App {
 	s.PrivateKey, err = solana.PrivateKeyFromBase58(m.PrivateKey)
 	if err != nil {
 		log.Printf("could not deserialize private key: %v", err)
-		return App{}
+		return &App{}
 	}
 
 	project, ok := pb.Project_value[m.Project]
 	if !ok {
 		log.Printf("could not deserialize project: %v, value: %v", err, m.Project)
-		return App{}
+		return &App{}
 	}
 	s.Project = pb.Project(project)
 
-	return App{
+	return &App{
 		Settings: s,
 	}
 }
 
-func (a App) NeedsInit() bool {
+func (a *App) NeedsInit() bool {
 	return a.Settings.AuthHeader == ""
+}
+
+func (a *App) Connect() error {
+	a.m.Lock()
+	defer a.m.Unlock()
+
+	if a.Provider != nil {
+		return nil
+	}
+
+	var err error
+
+	opts := provider.DefaultRPCOpts(provider.MainnetGRPC)
+	opts.PrivateKey = &a.Settings.PrivateKey
+
+	a.Provider, err = provider.NewGRPCClientWithOpts(opts)
+	return err
 }
