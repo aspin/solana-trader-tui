@@ -19,7 +19,10 @@ func newMenuModel(appStore *store.App) StageModel {
 		appStore: appStore,
 		list:     list.New(defaultMenuItems, list.NewDefaultDelegate(), 0, 0),
 	}
-	m.list.Title = "Action Items"
+	m.list.Title = "Menu"
+
+	// FIXME: title is current sticky?
+	m.list.SetShowTitle(false)
 	return m
 }
 
@@ -34,9 +37,17 @@ func (m *menuModel) setSize() {
 }
 
 func (m *menuModel) Update(msg tea.Msg) (Stage, StageModel, tea.Cmd) {
-	switch msg.(type) {
+	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.setSize()
+	case tea.KeyMsg:
+		switch msg.Type {
+		// transition to other stage
+		case tea.KeyEnter, tea.KeySpace:
+			listIndex := m.list.Index()
+			stage := m.list.Items()[listIndex].(menuItem).stage
+			return stage, m, nil
+		}
 	}
 
 	var cmd tea.Cmd

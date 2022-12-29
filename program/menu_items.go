@@ -5,6 +5,7 @@ import "github.com/charmbracelet/bubbles/list"
 type menuItem struct {
 	title string
 	desc  string
+	stage Stage
 }
 
 func (i menuItem) Title() string {
@@ -23,6 +24,7 @@ var defaultMenuItems = []list.Item{
 	menuItem{
 		title: "Settings",
 		desc:  "Set app details such as private/public key, auth header, etc.",
+		stage: StageSettings,
 	},
 	menuItem{
 		title: "Open Orders",

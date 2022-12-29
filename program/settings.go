@@ -69,14 +69,17 @@ func newSettingsModel(appStore *store.App) StageModel {
 
 		m.inputs[i] = t
 	}
-	return m
+	return &m
 }
 
-func (m settingsModel) Init(dispatch StageDispatcher) tea.Cmd {
+func (m *settingsModel) Init(dispatch StageDispatcher) tea.Cmd {
+	m.focusIndex = 0
+	m.inputs[0].Focus()
+	m.inputs[0].PromptStyle = focusedStyle
 	return textinput.Blink
 }
 
-func (m settingsModel) Update(msg tea.Msg) (Stage, StageModel, tea.Cmd) {
+func (m *settingsModel) Update(msg tea.Msg) (Stage, StageModel, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
