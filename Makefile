@@ -3,3 +3,6 @@ all:
 
 run:
 	go run $(CURDIR)/cmd/app/main.go
+
+run-example:
+	go run $(CURDIR)/cmd/example/main.go
