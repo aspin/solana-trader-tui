@@ -28,9 +28,10 @@ func New(s *store.App) *tea.Program {
 	}
 
 	models := map[Stage]StageModel{
-		StageSettings: newSettingsModel(m.store),
-		StageMenu:     newMenuModel(m.store),
-		StageError:    newErrorModel(m.store),
+		StageSettings:   newSettingsModel(m.store),
+		StageMenu:       newMenuModel(m.store),
+		StageError:      newErrorModel(m.store),
+		StageOpenOrders: newOpenOrdersModel(m.store),
 	}
 	m.models = models
 

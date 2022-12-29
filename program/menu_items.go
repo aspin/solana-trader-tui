@@ -29,6 +29,7 @@ var defaultMenuItems = []list.Item{
 	menuItem{
 		title: "Open Orders",
 		desc:  "View your unfilled open orders in a dex market",
+		stage: StageOpenOrders,
 	},
 	menuItem{
 		title: "Orderbook",

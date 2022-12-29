@@ -90,7 +90,10 @@ func (a *App) Connect() error {
 
 	opts := provider.DefaultRPCOpts(provider.MainnetGRPC)
 	opts.PrivateKey = &a.Settings.PrivateKey
+	opts.AuthHeader = a.Settings.AuthHeader
+	opts.UseTLS = true
 
+	// TODO: enhancement: WithBlock
 	a.Provider, err = provider.NewGRPCClientWithOpts(opts)
 	return err
 }
