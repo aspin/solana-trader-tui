@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"github.com/aspin/solana-trader-tui/store"
 	pb "github.com/bloXroute-Labs/solana-trader-proto/api"
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/progress"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"log"
 	"strings"
 	"time"
 )
@@ -17,12 +18,24 @@ const (
 	maxWidth = 80
 )
 
+type ooState int
+
+const (
+	ooInput ooState = iota
+	ooLoading
+	ooShow
+)
+
 type openOrdersModel struct {
 	appStore *store.App
-	list     list.Model
-	loading  bool
-	progress progress.Model
-	err      error // TODO: unused right now
+	dispatch StageDispatcher
+
+	marketInput textinput.Model
+	progress    progress.Model
+	list        list.Model
+
+	state ooState
+	err   error
 }
 
 type openOrdersMsg struct {
@@ -32,11 +45,17 @@ type openOrdersMsg struct {
 type tickMsg struct{}
 
 func newOpenOrdersModel(appStore *store.App) StageModel {
+	marketInput := textinput.New()
+	marketInput.Placeholder = "Market Name (e.g. SOL/USDC) or Public Key"
+	marketInput.Focus()
+	marketInput.PromptStyle = focusedStyle
+
 	m := &openOrdersModel{
-		appStore: appStore,
-		list:     list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0),
-		progress: progress.New(progress.WithDefaultGradient()),
-		loading:  true,
+		appStore:    appStore,
+		marketInput: marketInput,
+		progress:    progress.New(progress.WithDefaultGradient()),
+		list:        list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0),
+		state:       ooInput,
 	}
 
 	m.list.Title = "Open Orders"
@@ -47,26 +66,13 @@ func newOpenOrdersModel(appStore *store.App) StageModel {
 }
 
 func (m *openOrdersModel) Init(dispatch StageDispatcher) tea.Cmd {
-	m.loading = true
-
-	go func() {
-		openOrders, err := m.appStore.Provider.GetOpenOrders(context.Background(), "SOL/USDC", "", m.appStore.Settings.OpenOrdersAddress.String(), m.appStore.Settings.Project)
-		time.Sleep(time.Second)
-		m.loading = false
-		if err != nil {
-			log.Printf("could not fetch orders: %v", err)
-			return
-		}
-		dispatch(openOrdersMsg{openOrders: openOrders.Orders})
-	}()
-	go func() {
-		for m.loading {
-			time.Sleep(200 * time.Millisecond)
-			dispatch(tickMsg{})
-		}
-	}()
+	m.dispatch = dispatch
+	m.state = ooInput
+	m.marketInput.SetValue("")
+	m.progress.SetPercent(0)
+	m.err = nil
 	m.setSize()
-	return nil
+	return textinput.Blink
 }
 
 func (m *openOrdersModel) setSize() {
@@ -80,12 +86,27 @@ func (m *openOrdersModel) setSize() {
 }
 
 func (m *openOrdersModel) Update(msg tea.Msg) (Stage, StageModel, tea.Cmd) {
+	var cmd tea.Cmd
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.setSize()
+	case tea.KeyMsg:
+		switch m.state {
+		case ooInput:
+			if msg.Type == tea.KeyEnter {
+				m.state = ooLoading
+				m.fetchOrders()
+			}
+		case ooShow:
+			if key.Matches(msg, m.list.KeyMap.Quit) && !m.list.IsFiltered() {
+				return StageMenu, m, nil
+			}
+		}
 	case tickMsg:
-		if m.loading {
-			cmd := m.progress.IncrPercent(0.2)
+		switch m.state {
+		case ooLoading:
+			cmd = m.progress.IncrPercent(0.2)
 			return StageOpenOrders, m, cmd
 		}
 	case openOrdersMsg:
@@ -94,33 +115,74 @@ func (m *openOrdersModel) Update(msg tea.Msg) (Stage, StageModel, tea.Cmd) {
 			items = append(items, newOpenOrdersItem(order))
 		}
 		m.list.SetItems(items)
+		m.state = ooShow
 	case progress.FrameMsg:
-		if m.loading {
+		switch m.state {
+		case ooLoading:
+			progressModel, cmd := m.progress.Update(msg)
+			m.progress = progressModel.(progress.Model)
+			return StageOpenOrders, m, cmd
+		}
+		if m.state == ooLoading {
 			progressModel, cmd := m.progress.Update(msg)
 			m.progress = progressModel.(progress.Model)
 			return StageOpenOrders, m, cmd
 		}
 	}
 
-	// TODO: a bit not elegant
-	if m.loading {
+	switch m.state {
+	case ooInput:
+		m.marketInput, cmd = m.marketInput.Update(msg)
+		return StageOpenOrders, m, cmd
+	case ooLoading:
 		return StageOpenOrders, m, nil
-	} else {
-		var cmd tea.Cmd
+	case ooShow:
 		m.list, cmd = m.list.Update(msg)
 		return StageOpenOrders, m, cmd
+	default:
+		panic(fmt.Errorf("open orders reached unknown state: %v", m.state))
 	}
 }
 
+func (m *openOrdersModel) fetchOrders() {
+	go func() {
+		openOrders, err := m.appStore.Provider.GetOpenOrders(context.Background(), m.marketInput.Value(), "", m.appStore.Settings.OpenOrdersAddress.String(), m.appStore.Settings.Project)
+		if err != nil {
+			m.err = err
+			m.state = ooInput
+			m.progress.SetPercent(0)
+			return
+		}
+		m.dispatch(openOrdersMsg{openOrders: openOrders.Orders})
+	}()
+	go func() {
+		// completely artificial loading bar
+		for m.state == ooLoading {
+			time.Sleep(200 * time.Millisecond)
+			m.dispatch(tickMsg{})
+		}
+	}()
+}
+
 func (m openOrdersModel) View() string {
-	if m.loading {
-		var b strings.Builder
+	var b strings.Builder
+
+	switch m.state {
+	case ooInput:
+		b.WriteString(m.marketInput.View())
+		b.WriteRune('\n')
+
+		if m.err != nil {
+			b.WriteString(errorStyle.Render(m.err.Error()))
+			b.WriteRune('\n')
+		}
+	case ooLoading:
 		_, _ = fmt.Fprintf(&b, "Loading open orders for SOL/USDC (%v) for %v...\n", m.appStore.Settings.Project, m.appStore.Settings.PublicKey)
 		b.WriteString(m.progress.View())
 		b.WriteString("\n\n")
-
-		return b.String()
-	} else {
-		return listStyle.Render(m.list.View())
+	case ooShow:
+		b.WriteString(listStyle.Render(m.list.View()))
 	}
+
+	return b.String()
 }

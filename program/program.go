@@ -1,6 +1,7 @@
 package program
 
 import (
+	"fmt"
 	"github.com/aspin/solana-trader-tui/store"
 	tea "github.com/charmbracelet/bubbletea"
 	"log"
@@ -15,11 +16,14 @@ type appModel struct {
 }
 
 func New(s *store.App) *tea.Program {
-	//initialStage := StageMenu
-	initialStage := StageSettings
-
+	initialStage := StageMenu
 	if s.NeedsInit() {
 		initialStage = StageSettings
+	} else {
+		err := s.Connect()
+		if err != nil {
+			s.Err = fmt.Errorf("bad configuration: could not connect API client: %v", err)
+		}
 	}
 
 	m := &appModel{
@@ -92,6 +96,9 @@ func (m appModel) View() string {
 	if !ok {
 		log.Printf("error[view]: could not find model for stage %v", m.stage)
 		return ""
+	}
+	if m.store.Err != nil {
+		model = m.models[StageError]
 	}
 
 	b.WriteString(model.View())

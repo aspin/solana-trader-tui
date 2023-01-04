@@ -21,7 +21,7 @@ func newMenuModel(appStore *store.App) StageModel {
 	}
 	m.list.Title = "Menu"
 
-	// FIXME: title is current sticky?
+	// FIXME: title is currently sticky?
 	m.list.SetShowTitle(false)
 	return m
 }
