@@ -18,12 +18,12 @@ const (
 	maxWidth = 80
 )
 
-type ooState int
+type viewState int
 
 const (
-	ooInput ooState = iota
-	ooLoading
-	ooShow
+	vsInput viewState = iota
+	vsLoading
+	vsShow
 )
 
 type openOrdersModel struct {
@@ -34,7 +34,7 @@ type openOrdersModel struct {
 	progress    progress.Model
 	list        list.Model
 
-	state ooState
+	state viewState
 	err   error
 }
 
@@ -55,7 +55,7 @@ func newOpenOrdersModel(appStore *store.App) StageModel {
 		marketInput: marketInput,
 		progress:    progress.New(progress.WithDefaultGradient()),
 		list:        list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0),
-		state:       ooInput,
+		state:       vsInput,
 	}
 
 	m.list.Title = "Open Orders"
@@ -67,7 +67,7 @@ func newOpenOrdersModel(appStore *store.App) StageModel {
 
 func (m *openOrdersModel) Init(dispatch StageDispatcher) tea.Cmd {
 	m.dispatch = dispatch
-	m.state = ooInput
+	m.state = vsInput
 	m.marketInput.SetValue("")
 	m.progress.SetPercent(0)
 	m.err = nil
@@ -93,19 +93,19 @@ func (m *openOrdersModel) Update(msg tea.Msg) (Stage, StageModel, tea.Cmd) {
 		m.setSize()
 	case tea.KeyMsg:
 		switch m.state {
-		case ooInput:
+		case vsInput:
 			if msg.Type == tea.KeyEnter {
-				m.state = ooLoading
+				m.state = vsLoading
 				m.fetchOrders()
 			}
-		case ooShow:
+		case vsShow:
 			if key.Matches(msg, m.list.KeyMap.Quit) && !m.list.IsFiltered() {
 				return StageMenu, m, nil
 			}
 		}
 	case tickMsg:
 		switch m.state {
-		case ooLoading:
+		case vsLoading:
 			cmd = m.progress.IncrPercent(0.2)
 			return StageOpenOrders, m, cmd
 		}
@@ -115,15 +115,15 @@ func (m *openOrdersModel) Update(msg tea.Msg) (Stage, StageModel, tea.Cmd) {
 			items = append(items, newOpenOrdersItem(order))
 		}
 		m.list.SetItems(items)
-		m.state = ooShow
+		m.state = vsShow
 	case progress.FrameMsg:
 		switch m.state {
-		case ooLoading:
+		case vsLoading:
 			progressModel, cmd := m.progress.Update(msg)
 			m.progress = progressModel.(progress.Model)
 			return StageOpenOrders, m, cmd
 		}
-		if m.state == ooLoading {
+		if m.state == vsLoading {
 			progressModel, cmd := m.progress.Update(msg)
 			m.progress = progressModel.(progress.Model)
 			return StageOpenOrders, m, cmd
@@ -131,12 +131,12 @@ func (m *openOrdersModel) Update(msg tea.Msg) (Stage, StageModel, tea.Cmd) {
 	}
 
 	switch m.state {
-	case ooInput:
+	case vsInput:
 		m.marketInput, cmd = m.marketInput.Update(msg)
 		return StageOpenOrders, m, cmd
-	case ooLoading:
+	case vsLoading:
 		return StageOpenOrders, m, nil
-	case ooShow:
+	case vsShow:
 		m.list, cmd = m.list.Update(msg)
 		return StageOpenOrders, m, cmd
 	default:
@@ -149,7 +149,7 @@ func (m *openOrdersModel) fetchOrders() {
 		openOrders, err := m.appStore.Provider.GetOpenOrders(context.Background(), m.marketInput.Value(), "", m.appStore.Settings.OpenOrdersAddress.String(), m.appStore.Settings.Project)
 		if err != nil {
 			m.err = err
-			m.state = ooInput
+			m.state = vsInput
 			m.progress.SetPercent(0)
 			return
 		}
@@ -157,7 +157,7 @@ func (m *openOrdersModel) fetchOrders() {
 	}()
 	go func() {
 		// completely artificial loading bar
-		for m.state == ooLoading {
+		for m.state == vsLoading {
 			time.Sleep(200 * time.Millisecond)
 			m.dispatch(tickMsg{})
 		}
@@ -168,7 +168,7 @@ func (m openOrdersModel) View() string {
 	var b strings.Builder
 
 	switch m.state {
-	case ooInput:
+	case vsInput:
 		b.WriteString(m.marketInput.View())
 		b.WriteRune('\n')
 
@@ -176,11 +176,11 @@ func (m openOrdersModel) View() string {
 			b.WriteString(errorStyle.Render(m.err.Error()))
 			b.WriteRune('\n')
 		}
-	case ooLoading:
+	case vsLoading:
 		_, _ = fmt.Fprintf(&b, "Loading open orders for SOL/USDC (%v) for %v...\n", m.appStore.Settings.Project, m.appStore.Settings.PublicKey)
 		b.WriteString(m.progress.View())
 		b.WriteString("\n\n")
-	case ooShow:
+	case vsShow:
 		b.WriteString(listStyle.Render(m.list.View()))
 	}
 
