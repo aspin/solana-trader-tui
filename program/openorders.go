@@ -2,47 +2,29 @@ package program
 
 import (
 	"context"
-	"fmt"
+	"github.com/aspin/solana-trader-tui/component/listquery"
 	"github.com/aspin/solana-trader-tui/store"
 	pb "github.com/bloXroute-Labs/solana-trader-proto/api"
-	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
-	"github.com/charmbracelet/bubbles/progress"
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"strings"
-	"time"
 )
 
 const (
 	maxWidth = 80
 )
 
-type viewState int
-
-const (
-	vsInput viewState = iota
-	vsLoading
-	vsShow
-)
-
 type openOrdersModel struct {
 	appStore *store.App
 	dispatch StageDispatcher
 
-	marketInput textinput.Model
-	progress    progress.Model
-	list        list.Model
-
-	state viewState
-	err   error
+	listquery listquery.Model
 }
 
 type openOrdersMsg struct {
 	openOrders []*pb.Order
 }
-
-type tickMsg struct{}
 
 func newOpenOrdersModel(appStore *store.App) StageModel {
 	marketInput := textinput.New()
@@ -50,139 +32,49 @@ func newOpenOrdersModel(appStore *store.App) StageModel {
 	marketInput.Focus()
 	marketInput.PromptStyle = focusedStyle
 
+	lq := listquery.New([]textinput.Model{marketInput}, spinner.Points, list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0), nil)
+
 	m := &openOrdersModel{
-		appStore:    appStore,
-		marketInput: marketInput,
-		progress:    progress.New(progress.WithDefaultGradient()),
-		list:        list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0),
-		state:       vsInput,
+		appStore:  appStore,
+		listquery: lq,
 	}
-
-	m.list.Title = "Open Orders"
-
-	// FIXME: title is current sticky?
-	m.list.SetShowTitle(false)
+	m.listquery.SetQuery(m.fetchOrders)
 	return m
 }
 
 func (m *openOrdersModel) Init(dispatch StageDispatcher) tea.Cmd {
 	m.dispatch = dispatch
-	m.state = vsInput
-	m.marketInput.SetValue("")
-	m.progress.SetPercent(0)
-	m.err = nil
-	m.setSize()
-	return textinput.Blink
-}
-
-func (m *openOrdersModel) setSize() {
-	h, v := listStyle.GetFrameSize()
-	m.list.SetSize(m.appStore.UI.WindowWidth-h, m.appStore.UI.WindowHeight-v)
-
-	m.progress.Width = m.appStore.UI.WindowWidth - 4
-	if m.progress.Width > maxWidth {
-		m.progress.Width = maxWidth
-	}
+	return m.listquery.Init(m.appStore.UI.WindowWidth, m.appStore.UI.WindowHeight)
 }
 
 func (m *openOrdersModel) Update(msg tea.Msg) (Stage, StageModel, tea.Cmd) {
-	var cmd tea.Cmd
+	var (
+		cmd  tea.Cmd
+		exit bool
+	)
 
-	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
-		m.setSize()
-	case tea.KeyMsg:
-		switch m.state {
-		case vsInput:
-			if msg.Type == tea.KeyEnter {
-				m.state = vsLoading
-				m.fetchOrders()
-			}
-		case vsShow:
-			if key.Matches(msg, m.list.KeyMap.Quit) && !m.list.IsFiltered() {
-				return StageMenu, m, nil
-			}
-		}
-	case tickMsg:
-		switch m.state {
-		case vsLoading:
-			cmd = m.progress.IncrPercent(0.2)
-			return StageOpenOrders, m, cmd
-		}
-	case openOrdersMsg:
-		items := make([]list.Item, 0)
-		for _, order := range msg.openOrders {
-			items = append(items, newOpenOrdersItem(order))
-		}
-		m.list.SetItems(items)
-		m.state = vsShow
-	case progress.FrameMsg:
-		switch m.state {
-		case vsLoading:
-			progressModel, cmd := m.progress.Update(msg)
-			m.progress = progressModel.(progress.Model)
-			return StageOpenOrders, m, cmd
-		}
-		if m.state == vsLoading {
-			progressModel, cmd := m.progress.Update(msg)
-			m.progress = progressModel.(progress.Model)
-			return StageOpenOrders, m, cmd
-		}
+	m.listquery, cmd, exit = m.listquery.Update(msg)
+	if exit {
+		return StageMenu, m, nil
 	}
-
-	switch m.state {
-	case vsInput:
-		m.marketInput, cmd = m.marketInput.Update(msg)
-		return StageOpenOrders, m, cmd
-	case vsLoading:
-		return StageOpenOrders, m, nil
-	case vsShow:
-		m.list, cmd = m.list.Update(msg)
-		return StageOpenOrders, m, cmd
-	default:
-		panic(fmt.Errorf("open orders reached unknown state: %v", m.state))
-	}
+	return StageOpenOrders, m, cmd
 }
 
-func (m *openOrdersModel) fetchOrders() {
-	go func() {
-		openOrders, err := m.appStore.Provider.GetOpenOrders(context.Background(), m.marketInput.Value(), "", m.appStore.Settings.OpenOrdersAddress.String(), m.appStore.Settings.Project)
-		if err != nil {
-			m.err = err
-			m.state = vsInput
-			m.progress.SetPercent(0)
-			return
-		}
-		m.dispatch(openOrdersMsg{openOrders: openOrders.Orders})
-	}()
-	go func() {
-		// completely artificial loading bar
-		for m.state == vsLoading {
-			time.Sleep(200 * time.Millisecond)
-			m.dispatch(tickMsg{})
-		}
-	}()
+func (m *openOrdersModel) fetchOrders(vs []string) {
+	market := vs[0]
+	openOrders, err := m.appStore.Provider.GetOpenOrders(context.Background(), market, "", m.appStore.Settings.OpenOrdersAddress.String(), m.appStore.Settings.Project)
+	if err != nil {
+		m.dispatch(listquery.ErrorMsg{Err: err})
+		return
+	}
+
+	items := make([]list.Item, 0)
+	for _, order := range openOrders.Orders {
+		items = append(items, newOpenOrdersItem(order))
+	}
+	m.dispatch(listquery.ResultMsg{Items: items})
 }
 
 func (m openOrdersModel) View() string {
-	var b strings.Builder
-
-	switch m.state {
-	case vsInput:
-		b.WriteString(m.marketInput.View())
-		b.WriteRune('\n')
-
-		if m.err != nil {
-			b.WriteString(errorStyle.Render(m.err.Error()))
-			b.WriteRune('\n')
-		}
-	case vsLoading:
-		_, _ = fmt.Fprintf(&b, "Loading open orders for SOL/USDC (%v) for %v...\n", m.appStore.Settings.Project, m.appStore.Settings.PublicKey)
-		b.WriteString(m.progress.View())
-		b.WriteString("\n\n")
-	case vsShow:
-		b.WriteString(listStyle.Render(m.list.View()))
-	}
-
-	return b.String()
+	return m.listquery.View()
 }
